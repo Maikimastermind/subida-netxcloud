@@ -11,8 +11,8 @@ from pathlib import Path
 dotenv_path = Path(__file__).resolve().parent / ".env"
 load_dotenv(dotenv_path)
 
-USERNAME = os.getenv("USERNAME")
-PASSWORD = os.getenv("PASSWORD")
+USERNAME = os.getenv("NEXTCLOUD_USER")
+PASSWORD = os.getenv("NEXTCLOUD_PASS")
 NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL")
 
 # =============================
