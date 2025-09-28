@@ -1,75 +1,88 @@
 import os
 import requests
-from pathlib import Path
-import socket
+import logging
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from pathlib import Path
 
-# Cargar configuración desde config.env
-load_dotenv("config.env")
+# =============================
+# CARGAR VARIABLES DEL .env
+# =============================
+dotenv_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(dotenv_path)
 
-NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL")  # ej: http://192.168.1.50:8080/remote.php/webdav/Fotos/
-USERNAME = os.getenv("NEXTCLOUD_USER")
-PASSWORD = os.getenv("NEXTCLOUD_PASS")
-LOCAL_DIR = os.getenv("LOCAL_DIR", "/sdcard/DCIM/Camera")
-LOG_FILE = "uploaded_files.txt"
+USERNAME = os.getenv("USERNAME")
+PASSWORD = os.getenv("PASSWORD")
+NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL")
 
+# =============================
+# CONFIGURACIÓN LOCAL
+# =============================
 
-def is_wifi_connected():
-    """Verifica si hay conexión a internet vía WiFi (ping DNS simple)."""
+CARPETA_MEDIA = Path("/storage/emulated/0/DCIM/Camera")
+EXTENSIONES_VALIDAS = (".jpg", ".jpeg", ".png", ".mp4", ".mov")
+MINUTOS_RECIENTES = 30
+LOG_PATH = Path(__file__).resolve().parent / "subida.log"
+
+# =============================
+# CONFIGURAR LOGGER
+# =============================
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
+def log(mensaje, nivel="info"):
+    print(mensaje)
+    getattr(logging, nivel)(mensaje)
+
+# =============================
+# FUNCIONES
+# =============================
+
+def es_reciente(file: Path, minutos: int = 30) -> bool:
+    tiempo_mod = datetime.fromtimestamp(file.stat().st_mtime)
+    return datetime.now() - tiempo_mod < timedelta(minutes=minutos)
+
+def subir_archivo(file: Path):
+    nombre_archivo = file.name
+    url = f"{NEXTCLOUD_URL.rstrip('/')}/{nombre_archivo}"
     try:
-        socket.setdefaulttimeout(3)
-        socket.gethostbyname("nextcloud.com")
-        return True
-    except socket.error:
-        return False
+        with open(file, 'rb') as f:
+            response = requests.put(url, data=f, auth=(USERNAME, PASSWORD))
 
-
-def load_uploaded_files():
-    """Carga lista de archivos ya subidos."""
-    if not Path(LOG_FILE).exists():
-        return set()
-    with open(LOG_FILE, "r") as f:
-        return set(line.strip() for line in f)
-
-
-def save_uploaded_file(file_path):
-    """Guarda archivo como subido en el log."""
-    with open(LOG_FILE, "a") as f:
-        f.write(file_path + "\n")
-
-
-def upload_file(file_path):
-    """Sube un archivo a Nextcloud vía WebDAV y lo elimina si es exitoso."""
-    file_name = os.path.basename(file_path)
-    url = NEXTCLOUD_URL + file_name
-    with open(file_path, "rb") as f:
-        response = requests.put(url, data=f, auth=(USERNAME, PASSWORD))
-        if response.status_code in (200, 201, 204):
-            print(f"✔️ Subido: {file_name}")
-            save_uploaded_file(file_path)
-
-            # Intentar borrar archivo local
-            try:
-                os.remove(file_path)
-                print(f"🗑️ Borrado del dispositivo: {file_name}")
-            except Exception as e:
-                print(f"⚠️ No se pudo borrar {file_name}: {e}")
+        if response.status_code == 201:
+            log(f"✅ Subido: {nombre_archivo}")
+        elif response.status_code == 204:
+            log(f"⚠️ Ya existía y se actualizó: {nombre_archivo}", "warning")
         else:
-            print(f"❌ Error subiendo {file_name}: {response.status_code} - {response.text}")
+            log(f"❌ Error subiendo {nombre_archivo}: {response.status_code} - {response.text}", "error")
 
+    except Exception as e:
+        log(f"❌ Excepción subiendo {nombre_archivo}: {e}", "error")
 
 def main():
-    if not is_wifi_connected():
-        print("⚠️ No hay conexión WiFi. Espera a conectarte para subir archivos.")
+    log("🚀 Iniciando subida de archivos recientes...")
+
+    if not CARPETA_MEDIA.exists():
+        log(f"❌ Ruta no encontrada: {CARPETA_MEDIA}", "error")
         return
 
-    uploaded_files = load_uploaded_files()
-    local_dir = Path(LOCAL_DIR)
+    archivos = list(CARPETA_MEDIA.glob("*"))
+    recientes = [f for f in archivos if f.suffix.lower() in EXTENSIONES_VALIDAS and es_reciente(f, MINUTOS_RECIENTES)]
 
-    for file in local_dir.glob("*.*"):
-        if str(file) not in uploaded_files:
-            upload_file(str(file))
+    if not recientes:
+        log("📭 No hay archivos nuevos recientes para subir.")
+        return
 
+    log(f"📤 Subiendo {len(recientes)} archivo(s) reciente(s)...")
+    for archivo in recientes:
+        subir_archivo(archivo)
 
+# =============================
+# EJECUCIÓN
+# =============================
 if __name__ == "__main__":
     main()
