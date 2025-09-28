@@ -24,8 +24,8 @@ from tqdm import tqdm # Importamos tqdm para la barra de progreso
 # =============================
 # CARGAR VARIABLES DEL .env
 # =============================
-# Se asume que el archivo .env está en el mismo directorio que el script.
-dotenv_path = Path(__file__).resolve().parent / ".env"
+# Se buscará un archivo 'config.env' en el mismo directorio que el script.
+dotenv_path = Path(__file__).resolve().parent / "config.env"
 load_dotenv(dotenv_path)
 
 # =============================
